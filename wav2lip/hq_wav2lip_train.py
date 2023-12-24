@@ -1,9 +1,9 @@
 from os.path import dirname, join, basename, isfile
 from tqdm import tqdm
 
-from models import SyncNet_color as SyncNet
-from models import Wav2Lip, Wav2Lip_disc_qual
-import audio
+from .models import SyncNet_color as SyncNet
+from .models import Wav2Lip, Wav2Lip_disc_qual
+from . import audio
 
 import torch
 from torch import nn

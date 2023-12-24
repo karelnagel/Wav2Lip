@@ -1,7 +1,8 @@
 import numpy as np
-import cv2, os, audio, subprocess, torch, face_detection, platform
+import cv2, os, subprocess, torch, platform
 from tqdm import tqdm
-from models import Wav2Lip
+from . import audio, face_detection
+from .models import Wav2Lip
 
 
 class Args:
