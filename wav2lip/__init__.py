@@ -180,17 +180,8 @@ class Wav2Lip:
 
             yield img_batch, mel_batch, frame_batch, coords_batch
 
-    def infer(self, face_path, audio_path, out_path):
-        static = (
-            True
-            if os.path.isfile(face_path)
-            and face_path.split(".")[1] in ["jpg", "png", "jpeg"]
-            else False
-        )
-        if not os.path.isfile(face_path):
-            raise ValueError("--face argument must be a valid path to video/image file")
-
-        elif face_path.split(".")[1] in ["jpg", "png", "jpeg"]:
+    def load_face(self, face_path, static: bool):
+        if static:
             full_frames = [cv2.imread(face_path)]
             fps = self.fps
 
@@ -227,18 +218,13 @@ class Wav2Lip:
                 frame = frame[y1:y2, x1:x2]
 
                 full_frames.append(frame)
+        return full_frames, fps
 
+    def infer(self, *, face_path, static: bool, audio_path, out_path):
+        full_frames, fps = self.load_face(face_path, static)
         print("Number of frames available for inference: " + str(len(full_frames)))
 
-        if not audio_path.endswith(".wav"):
-            print("Extracting raw audio...")
-
-            subprocess.call(
-                "ffmpeg -y -i {} -strict -2 {}".format(audio_path, "tmp/temp.wav"),
-                shell=True,
-            )
-            audio_path = "tmp/temp.wav"
-
+       
         wav = audio.load_wav(audio_path, 16000)
         mel = audio.melspectrogram(wav)
         print(mel.shape)
@@ -251,7 +237,7 @@ class Wav2Lip:
         mel_chunks = []
         mel_idx_multiplier = 80.0 / fps
         i = 0
-        while 1:
+        while True:
             start_idx = int(i * mel_idx_multiplier)
             if start_idx + self.mel_step_size > len(mel[0]):
                 mel_chunks.append(mel[:, len(mel[0]) - self.mel_step_size :])
@@ -272,7 +258,7 @@ class Wav2Lip:
             if i == 0:
                 frame_h, frame_w = full_frames[0].shape[:-1]
                 out = cv2.VideoWriter(
-                    f"{out_path}.avi",
+                    f"{out_path}",
                     cv2.VideoWriter_fourcc(*"DIVX"),
                     fps,
                     (frame_w, frame_h),
@@ -296,10 +282,6 @@ class Wav2Lip:
 
                 f[y1:y2, x1:x2] = p
                 out.write(f)
-        print(f"Saved to {out_path}.avi")
+        print(f"Saved to {out_path}")
         out.release()
-
-        command = "ffmpeg -y -i {} -i {} -strict -2 -q:v 1 {}".format(
-            audio_path, f"{out_path}.avi", out_path
-        )
-        subprocess.call(command, shell=platform.system() != "Windows")
+        return out_path
