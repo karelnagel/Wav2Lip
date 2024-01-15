@@ -115,9 +115,9 @@ def datagen(frames, mels, args: Args):
 
     if args.box[0] == -1:
         if not args.static:
-            face_det_results = face_detect(frames)  # BGR2RGB for CNN face detection
+            face_det_results = face_detect(frames, args)
         else:
-            face_det_results = face_detect([frames[0]])
+            face_det_results = face_detect([frames[0]], args)
     else:
         print("Using the specified bounding box instead of face detection...")
         y1, y2, x1, x2 = args.box
@@ -268,7 +268,7 @@ def main(args: Args):
     full_frames = full_frames[: len(mel_chunks)]
 
     batch_size = args.wav2lip_batch_size
-    gen = datagen(full_frames.copy(), mel_chunks)
+    gen = datagen(full_frames.copy(), mel_chunks, args)
 
     for i, (img_batch, mel_batch, frames, coords) in enumerate(
         tqdm(gen, total=int(np.ceil(float(len(mel_chunks)) / batch_size)))
@@ -279,7 +279,7 @@ def main(args: Args):
 
             frame_h, frame_w = full_frames[0].shape[:-1]
             out = cv2.VideoWriter(
-                "temp/result.avi",
+                f"{args.outfile}.avi",
                 cv2.VideoWriter_fourcc(*"DIVX"),
                 fps,
                 (frame_w, frame_h),
@@ -303,6 +303,6 @@ def main(args: Args):
     out.release()
 
     command = "ffmpeg -y -i {} -i {} -strict -2 -q:v 1 {}".format(
-        args.audio, "temp/result.avi", args.outfile
+        args.audio, f"{args.outfile}.avi", args.outfile
     )
     subprocess.call(command, shell=platform.system() != "Windows")
