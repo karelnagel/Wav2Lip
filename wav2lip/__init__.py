@@ -144,10 +144,8 @@ class Wav2Lip:
         print("Face detection time: {}".format(time.time() - start))
         return face_det_results
 
-    def datagen(self, frames, mels, static: bool):
+    def datagen(self, frames, mels, static: bool, face_det_results):
         img_batch, mel_batch, frame_batch, coords_batch = [], [], [], []
-
-        face_det_results = self.face_detect2(frames, static)
 
         for i, m in enumerate(mels):
             idx = 0 if static else i % len(frames)
@@ -227,11 +225,12 @@ class Wav2Lip:
                 frame = frame[y1:y2, x1:x2]
 
                 full_frames.append(frame)
-        return full_frames, fps
+        face_det_results = self.face_detect2(full_frames, static)
+        return full_frames, fps, face_det_results
 
-    def infer(self, *, face_path, static: bool, audio_path, out_path):
-        full_frames, fps = self.load_face(face_path, static)
-
+    def infer(
+        self, *, static: bool, audio_path, out_path, full_frames, fps, face_det_results
+    ):
         print("Number of frames available for inference: " + str(len(full_frames)))
 
         wav = audio.load_wav(audio_path, 16000)
@@ -257,7 +256,7 @@ class Wav2Lip:
         full_frames = full_frames[: len(mel_chunks)]
 
         batch_size = self.wav2lip_batch_size
-        gen = self.datagen(full_frames.copy(), mel_chunks, static)
+        gen = self.datagen(full_frames.copy(), mel_chunks, static, face_det_results)
 
         for i, (img_batch, mel_batch, frames, coords) in enumerate(
             tqdm(gen, total=int(np.ceil(float(len(mel_chunks)) / batch_size)))
