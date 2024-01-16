@@ -3,6 +3,7 @@ import cv2, os, subprocess, torch, platform
 from tqdm import tqdm
 from . import audio, face_detection
 from .models import Wav2Lip as Wav2LipModel
+import time
 
 
 def get_smoothened_boxes(boxes, T):
@@ -127,18 +128,26 @@ class Wav2Lip:
         del detector
         return results
 
-    def datagen(self, frames, mels, static: bool):
-        img_batch, mel_batch, frame_batch, coords_batch = [], [], [], []
-
+    def face_detect2(self, full_frames, static):
+        start = time.time()
         if self.box[0] == -1:
             if not static:
-                face_det_results = self.face_detect(frames)
+                face_det_results = self.face_detect(full_frames)
             else:
-                face_det_results = self.face_detect([frames[0]])
+                face_det_results = self.face_detect([full_frames[0]])
         else:
             print("Using the specified bounding box instead of face detection...")
             y1, y2, x1, x2 = self.box
-            face_det_results = [[f[y1:y2, x1:x2], (y1, y2, x1, x2)] for f in frames]
+            face_det_results = [
+                [f[y1:y2, x1:x2], (y1, y2, x1, x2)] for f in full_frames
+            ]
+        print("Face detection time: {}".format(time.time() - start))
+        return face_det_results
+
+    def datagen(self, frames, mels, static: bool):
+        img_batch, mel_batch, frame_batch, coords_batch = [], [], [], []
+
+        face_det_results = self.face_detect2(frames, static)
 
         for i, m in enumerate(mels):
             idx = 0 if static else i % len(frames)
@@ -222,9 +231,9 @@ class Wav2Lip:
 
     def infer(self, *, face_path, static: bool, audio_path, out_path):
         full_frames, fps = self.load_face(face_path, static)
+
         print("Number of frames available for inference: " + str(len(full_frames)))
 
-       
         wav = audio.load_wav(audio_path, 16000)
         mel = audio.melspectrogram(wav)
         print(mel.shape)
@@ -244,8 +253,6 @@ class Wav2Lip:
                 break
             mel_chunks.append(mel[:, start_idx : start_idx + self.mel_step_size])
             i += 1
-
-        print("Length of mel chunks: {}".format(len(mel_chunks)))
 
         full_frames = full_frames[: len(mel_chunks)]
 
