@@ -1,5 +1,5 @@
 import numpy as np
-import cv2, os, subprocess, torch, platform
+import cv2, os, subprocess, torch
 from tqdm import tqdm
 from . import audio, face_detection
 from .models import Wav2Lip as Wav2LipModel
@@ -16,16 +16,17 @@ def get_smoothened_boxes(boxes, T):
     return boxes
 
 
-def load_model(checkpoint_path, device):
+def load_model(device):
     model = Wav2LipModel()
+    checkpoint_dir = os.path.expanduser("~/.cache/wav2lip")
+    checkpoint_path = os.path.join(checkpoint_dir, "wav2lip_gan.pth")
     if not os.path.exists(checkpoint_path):
-        print("Downloading pretrained model to {}".format(checkpoint_path))
-        subprocess.call(
-            f"wget https://huggingface.co/spaces/nicolasni1977/Talking_Head_Generator/resolve/main/wav2lip/wav2lip_gan.pth -O {checkpoint_path}",
-            shell=True,
-        )
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        print(f"Downloading pretrained model to {checkpoint_path}")
+        url = "https://huggingface.co/spaces/nicolasni1977/Talking_Head_Generator/resolve/main/wav2lip/wav2lip_gan.pth"
+        subprocess.run(f"wget {url} -O {checkpoint_path}", shell=True, check=True)
 
-    print("Load checkpoint from: {}".format(checkpoint_path))
+    print(f"Loading checkpoint from: {checkpoint_path}")
     if device == "cuda":
         checkpoint = torch.load(checkpoint_path)
     else:
@@ -42,10 +43,16 @@ def load_model(checkpoint_path, device):
     return model.eval()
 
 
+class Face:
+    def __init__(self, full_frames, fps, face_det_results):
+        self.full_frames = full_frames
+        self.fps = fps
+        self.face_det_results = face_det_results
+
+
 class Wav2Lip:
     def __init__(
         self,
-        checkpoint_path,
         fps,
         pads=[0, 10, 0, 0],
         face_det_batch_size=16,
@@ -57,7 +64,6 @@ class Wav2Lip:
         nosmooth=False,
         img_size=96,
     ):
-        self.checkpoint_path = checkpoint_path
         self.fps = fps
         self.pads = pads
         self.face_det_batch_size = face_det_batch_size
@@ -71,7 +77,7 @@ class Wav2Lip:
         self.mel_step_size = 16
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model = load_model(checkpoint_path, self.device)
+        self.model = load_model(self.device)
 
     def face_detect(self, images):
         detector = face_detection.FaceAlignment(
@@ -187,7 +193,7 @@ class Wav2Lip:
 
             yield img_batch, mel_batch, frame_batch, coords_batch
 
-    def load_face(self, face_path, static: bool):
+    def load_face(self, face_path, static: bool) -> Face:
         if static:
             full_frames = [cv2.imread(face_path)]
             fps = self.fps
@@ -226,12 +232,10 @@ class Wav2Lip:
 
                 full_frames.append(frame)
         face_det_results = self.face_detect2(full_frames, static)
-        return full_frames, fps, face_det_results
+        face = Face(full_frames, fps, face_det_results)
+        return face
 
-    def infer(
-        self, *, static: bool, audio_path, out_path, full_frames, fps, face_det_results
-    ):
-        print("Number of frames available for inference: " + str(len(full_frames)))
+    def infer(self, *, static: bool, audio_path, out_path, face: Face):
 
         wav = audio.load_wav(audio_path, 16000)
         mel = audio.melspectrogram(wav)
@@ -243,7 +247,7 @@ class Wav2Lip:
             )
 
         mel_chunks = []
-        mel_idx_multiplier = 80.0 / fps
+        mel_idx_multiplier = 80.0 / face.fps
         i = 0
         while True:
             start_idx = int(i * mel_idx_multiplier)
@@ -253,10 +257,12 @@ class Wav2Lip:
             mel_chunks.append(mel[:, start_idx : start_idx + self.mel_step_size])
             i += 1
 
-        full_frames = full_frames[: len(mel_chunks)]
+        full_frames = face.full_frames[: len(mel_chunks)]
 
         batch_size = self.wav2lip_batch_size
-        gen = self.datagen(full_frames.copy(), mel_chunks, static, face_det_results)
+        gen = self.datagen(
+            full_frames, mel_chunks, static, face.face_det_results
+        )
 
         for i, (img_batch, mel_batch, frames, coords) in enumerate(
             tqdm(gen, total=int(np.ceil(float(len(mel_chunks)) / batch_size)))
@@ -266,7 +272,7 @@ class Wav2Lip:
                 out = cv2.VideoWriter(
                     f"{out_path}",
                     cv2.VideoWriter_fourcc(*"DIVX"),
-                    fps,
+                    face.fps,
                     (frame_w, frame_h),
                 )
 
